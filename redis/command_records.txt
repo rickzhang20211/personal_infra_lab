@@ -1,0 +1,17 @@
+rick@ricks1:~/personal_infra_lab/redis$ docker compose up -d 
+[+] up 3/3 
+ ✔ Network redis_default   Created                                                                                                                                                                                                               0.0s
+ ✔ Volume redis_redis_data Created                                                                                                                                                                                                               0.0s
+ ✔ Container redis-prod    Started                                                                                                                                                                                                               0.3s
+rick@ricks1:~/personal_infra_lab/redis$ docker compose ps 
+NAME         IMAGE                COMMAND                  SERVICE   CREATED          STATUS                            PORTS                                       
+redis-prod   redis:7.4-bookworm   "docker-entrypoint.s…"   redis     10 seconds ago   Up 9 seconds (health: starting)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp 
+rick@ricks1:~/personal_infra_lab/redis$ docker exec -it redis-prod redis-cli -a redis123 ping                                                                       
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe. 
+PONG                                     
+rick@ricks1:~/personal_infra_lab/redis$ docker exec -it redis-prod redis-cli -a redis123 info server | head -5 
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe. 
+# Server 
+redis_version:7.4.11
+redis_git_sha1:00000000
+redis_git_dirty:0
