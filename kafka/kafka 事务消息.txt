@@ -1,0 +1,58 @@
+
+生产端事务（发消息 + 写 DB）
+
+① 客户端 POST /api/tx/send?msg=xxx
+        ↓
+② Spring 开启 @Transactional 事务
+        ↓
+③ Producer 向 Broker 发送消息（此时消息对 consumer 不可见，
+   写在 topic 的 "uncommitted" 区域）
+        ↓
+④ 写数据库（fakeDb.add(msg)）
+        ↓
+⑤ 如果第④步抛异常 → 事务 rollback
+   │                    → Producer 向 Broker 发 abort
+   │                    → Broker 标记消息为 abort，consumer 永远看不到
+   │                    → DB 也没写进去
+   │
+   └→ 如果第④步正常 → 事务 commit
+                        → Producer 向 Broker 发 commit
+                        → Broker 标记消息为 committed
+                        → consumer（isolation.level=read_committed）才能读到
+
+
+关键点
+消息在 commit 之前就已经到了 Broker，只是对 read_committed 的 consumer 不可见
+read_uncommitted 的 consumer 能看到（但默认 console consumer 是 uncommitted，所以之前验证时要加参数）
+transaction-id-prefix 让每个 Producer 实例有唯一事务 ID，Broker 用它做 fencing（防止僵尸 producer）
+
+
+消费端事务（Consume-Transform-Produce）
+从 topic A 消费消息，处理后发到 topic B，消费位移和发送结果绑定在同一个事务里。
+① Consumer 从 test-tx 拉取消息（只拉 committed 的消息）
+        ↓
+② Spring 开启事务（绑定 consumer offset + producer 发送）
+        ↓
+③ 业务处理（比如加前缀 "processed: xxx"）
+        ↓
+④ Producer 发送处理结果到 test-tx-out（此时对下游 consumer 不可见）
+        ↓
+⑤ 如果第③步抛异常 → 事务 rollback
+   │                    → test-tx-out 里的消息 abort，下游看不到
+   │                    → consumer offset 不提交
+   │                    → 重启后这条消息会重新投递（重新消费）
+   │
+   └→ 如果一切正常 → 事务 commit
+                        → test-tx-out 消息对下游可见
+                        → consumer offset 提交（这条消息不会再被消费）
+
+场景一：
+  HTTP → [Producer + DB] ══(事务)══> Kafka ──(read_committed)──> Consumer
+
+场景二：
+  Kafka(test-tx) ──> [Consumer + Producer] ══(事务)══> Kafka(test-tx-out) ──> 下游
+                       ↑ offset 也在事务里
+
+
+Kafka 事务不保证你的业务逻辑幂等，这是应用层的事.
+Kafka starter 封装了spring的事务，背后的回滚也只是针对kafka自身的，第三方的数据补偿这些，还需要使用者自己去维护
